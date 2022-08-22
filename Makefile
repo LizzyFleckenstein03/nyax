@@ -15,3 +15,7 @@ main.out: $(OBJS)
 .PHONY: run
 run: nyax.img
 	bochs -q
+
+.PHONY: clean
+clean:
+	rm -rf *.o *.out *.img

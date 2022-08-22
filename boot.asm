@@ -1,5 +1,9 @@
 [org 0x7C00]
 
+%define PAGETABLE 0x1000
+%define KERNEL 0xD000
+%define STACK 0x7E00
+
 boot:
 	xor ax, ax
 	mov ds, ax
@@ -8,34 +12,30 @@ boot:
 	mov gs, ax
 	mov ss, ax
 
-	mov bp, 0x9000
+	mov bp, STACK
 	mov sp, bp
 
 	mov ax, booting_msg
 	call print_str
 
-	mov bx, 0xD000
+	mov bx, KERNEL
 	mov cl, 2
 	mov al, (MAIN_SIZE + 511) / 512
 	call load_disk
 
-	;mov cl, 3
-	;mov al, [es:bx]
-	;call load_disk
-
-	mov di, 0x9000
+	mov di, PAGETABLE+0x0000
 .clr_buf:
 	mov byte[di], 0
 	inc di
-	cmp di, 0xD000
+	cmp di, PAGETABLE+0x4000
 	jne .clr_buf
 
-	mov dword[0x9000], 0xA003
-	mov dword[0xA000], 0xB003
-	mov dword[0xB000], 0xC003
+	mov dword[PAGETABLE+0x0000], PAGETABLE+0x1003
+	mov dword[PAGETABLE+0x1000], PAGETABLE+0x2003
+	mov dword[PAGETABLE+0x2000], PAGETABLE+0x3003
 
 	mov eax, 3
-	mov di, 0xC000
+	mov di, PAGETABLE+0x3000
 .build_pt:
 	mov [di], eax
 	add eax, 0x1000
@@ -43,7 +43,7 @@ boot:
 	cmp eax, 0x100000
 	jb .build_pt
 
-	mov di, 0x9000
+	mov di, PAGETABLE
 
 	mov al, 0xFF
 	out 0xA1, al
@@ -108,7 +108,7 @@ print_str:
 	pop ax
 	ret
 
-booting_msg: db 10, 13, "Booting NyaX...", 10, 10, 13, 0
+booting_msg: db 10, 13, "Loading NyaX...", 10, 10, 13, 0
 disk_error_msg: db "Disk is bwoken, cant boot ;-;", 10, 13, 0
 
 GDT:
@@ -134,7 +134,7 @@ long_mode:
 	mov gs, ax
 	mov ss, ax
 
-	jmp 0xD000
+	jmp KERNEL
 
 times 510-($-$$) db 0
 dw 0xAA55
