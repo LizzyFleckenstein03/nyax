@@ -1,106 +1,167 @@
-global paging
+global page_map, page_region
 extern print_hex, print_chr, newline, print_dec, print_str
-global paging
 
 section .data
 
-pagebuf:
-	.ptr: dq 0x5000
-	.size: dq 0x3000
+dd 0
+
+pagebuf_init:
+	.start: dq 0x5000
+	.size: dq 0x2000
 	.used: dq 0
 
+pagebuf: dq pagebuf_init
+
+next_page: dq 0
+
 section .text
+
+; allocate new page table buffer
 alloc:
-	mov rdi, .msg
-	call print_str
-	jmp $
-.msg: db "cock", 10, 0
+	; rsi = buffer (result)
+	; rdi = next_page
+	; r8  = pagebuf
+	; rbx = upper
+	; rax = tmp; used_next
 
-tables:
-; level 4
+	mov r8, [pagebuf] ; *pagebuf
+	mov rsi, [r8]     ; start = pagebuf->start
+
+	mov rbx, [r8+8]   ; size = pagebuf->size
+	add rbx, rsi      ; upper_have = start + size
+
+	; round *up* to 0x1000 align
 	mov rax, 0xfff
-	not rax         ; offset mask
+	add rsi, rax
+	not rax
+	and rsi, rax      ; aligned_start = (start + 0xfff) & (~0xfff)
 
-	mov rbx, -1     ; low bits mask
-	shl rbx, 3      ;
+	mov rax, [r8+16]  ; used = pagebuf->used
+	add rax, 0x1000
+	add rsi, rax      ; upper_need = aligned_start + used + 0x1000
 
-	xor rcx, rcx
+	cmp rsi, rbx      ; if upper_need > upper_have
+	ja .newbuf        ; current region is full, get new
 
-	mov r14, r10
-	mov r13, r10
-	mov r12, r10
-	mov r11, r10
+	cmp rsi, r10      ; if upper_need >= next_page
+	jae .oom          ; out of memory (target buffer isn't paged yet)
 
-	not rcx               ; negate remainder mask
-	and r14, rcx          ; apply remainder mask
-	mov rcx, -1           ; reset remainder mask
-	shl rcx, 12+9+9+9     ; update remainder mask
+	mov [r8+16], rax  ; pagebuf->used = used + 0x1000
 
-	shr r14, 12+9+9+9-3   ; divide
-	and r14, rbx          ; clear lower bits
+	; clear out buffer
 
-	mov rdx, 0x1000       ; offset
-	and rdx, rax          ; offset mask
-	add r14, rdx          ; add offset
+	mov rbx, rsi
+	sub rsi, 0x1000
 
-	not rcx               ; negate remainder mask
-	and r13, rcx          ; apply remainder mask
-	mov rcx, -1           ; reset remainder mask
-	shl rcx, 12+9+9       ; update remainder mask
-
-	shr r13, 12+9+9-3     ; divide
-	and r13, rbx          ; clear lower bits
-
-	mov rdx, [r14]        ; offset
-	jnz .exist3
-	call alloc
-.exist3:
-	and rdx, rax          ; offset mask
-	add r13, rdx          ; add offset
-
-
-	not rcx               ; negate remainder mask
-	and r12, rcx          ; apply remainder mask
-	mov rcx, -1           ; reset remainder mask
-	shl rcx, 12+9         ; update remainder mask
-
-	shr r12, 12+9-3       ; divide
-	and r12, rbx          ; clear lower bits
-
-	mov rdx, [r13]        ; offset
-	jnz .exist2
-	call alloc
-.exist2:
-	and rdx, rax          ; offset mask
-	add r12, rdx          ; add offset
-
-
-	not rcx               ; negate remainder mask
-	and r11, rcx          ; apply remainder mask
-
-	mov rcx, -1           ; reset remainder mask
-	shl rcx, 12           ; update remainder mask
-
-	shr r11, 12-3         ; divide
-	and r11, rbx          ; clear lower bits
-
-	mov rdx, [r12]        ; offset
-	jnz .exist1
-	call alloc
-.exist1:
-	and rdx, rax          ; offset mask
-	add r11, rdx          ; add offset
+.clear:
+	sub rbx, 8
+	mov qword[rbx], 0
+	cmp rbx, rsi
+	jne .clear
 
 	ret
 
-; level1
-	mov rax, r11
-	xor rdx, rdx
-	mov rbx, 8
-	mul rbx
-	mov r11, rax
-	add r11, [r12]
-	sub r11, 3
+; select next page buffer
+.newbuf:
+	cmp r8, pagebuf_init
+	jne .nextbuf
+
+	mov r8, 0x500
+	jmp .trybuf
+
+.nextbuf:
+	add r8, 24
+
+.trybuf:
+	cmp qword[r8], 0
+	je .oom       ; last region reached
+
+	mov rax, [r8+16]
+
+	cmp rax, -1
+	je .nextbuf   ; region is reserved
+
+	cmp rax, 0
+	jne .oom      ; region has not been paged yet
+
+	mov [pagebuf], r8
+	jmp alloc
+
+.oom:
+	push rdi
+
+	mov rdi, .oom_msg
+	call print_str
+
+	pop rdi
+
+	call print_hex
+	call newline
+
+	jmp $
+
+.oom_msg: db "out of memory for page table", 10, "next_page = ", 0
+
+; get/create page tables
+get_tables:
+; level 4
+
+	; rdi = address         (arg, persist)
+	; rax = tmp
+	; rbx = mask
+	; rcx = bits            (persist)
+	; rdx = level           (persist)
+	; r8  = table address
+	; rsi = next offset     (persist)
+
+	mov cl, 12+9*4
+	mov dl, 4
+
+	mov rsi, 0x1000
+
+; level 4
+.level:
+	dec dl
+	mov r8, rdi
+	mov rbx, -1           ; reset remainder mask
+	shl rbx, cl           ; update remainder mask
+	not rbx               ; negate remainder mask
+	and r8, rbx           ; apply remainder mask
+
+	mov al, 9
+	mul dl
+	add al, 12
+	mov cl, al
+
+	shr r8, cl            ; divide
+	shl r8, 3             ; multiply by 8
+
+	mov rbx, 0xfff        ; 0x1000 alignment
+	not rbx               ; offset mask
+
+	and rsi, rbx          ; apply offset mask
+	add r8, rsi           ; add offset
+	push r8               ; store
+
+	cmp dl, 0
+	je .done
+
+	mov rsi, [r8]         ; next offset
+	cmp rsi, 0
+	jne .level
+
+	call alloc
+	or rsi, 3
+	mov r8, [rsp]
+	mov [r8], rsi
+
+	jmp .level
+
+.done:
+	pop r11
+	pop r12
+	pop r13
+	pop r14
 
 	ret
 
@@ -108,92 +169,157 @@ space:
 	mov dil, ' '
 	jmp print_chr
 
-paging:
-	mov r8, 0x0500              ; start of extended memory map
-	movzx r9, word[0x1000-10-2] ; number of map entries
+page_region:
+	mov rdi, [r9]   ; ptr = mmap_entry->ptr
+	mov r10, [next_page]
 
-	mov r15, pagebuf
+	push rdi
 
-.loop:
-	;mov r10, [r8]
-	;call tables
+	mov rax, 1 << 63
 
-	mov r10, 0xfffff
-	call tables
-
-	mov rdi, r14
+	or rdi, rax
 	call print_hex
 	call space
 
-	mov rdi, r13
+	mov rdi, [r9+8]
+	add rdi, [rsp]
+	or rdi, rax
+
 	call print_hex
-	call space
-
-	mov rdi, r12
-	call print_hex
-	call space
-
-	mov rdi, r11
-	call print_hex
-	call space
-
-	mov rdi, [r11]
-	call print_hex
-
-	jmp $
-
-	mov rdi, r12
-	call print_hex
-	call space
-
-	mov rdi, r11
-	call print_hex
-	call space
-
-	mov rdi, r10
-	call print_hex
-	call space
-
-
-
 	call newline
 
+	pop rdi
+
+	; for   usable region (type = 1), set mmap_entry->used =  0
+	; for reserved region (type = 2), set mmap_entry->used = -1
+	xor rax, rax
+	xor rbx, rbx
+	mov eax, dword[r9+16]
+	cmp rax, 1
+	je .set_used
+	dec rbx
+.set_used:
+	mov [r9+16], rbx
+
+	mov r10, rdi
+	mov r15, rdi    ; r15 = end of region
+	add r15, [r9+8]
+
+	mov rax, 0xfff
+	not rax
+	and rdi, rax    ; round down to 0x1000 aligned
+
+	cmp rdi, r10
+	jb .get_tables
+
+	mov r10, rdi
+
+.get_tables:
+	call get_tables ; page tables into r11-r14
+
+	; start filling L1 map
+.l1:
+	mov rax, rdi
+	or rax, 3
+	mov [r11], rax
+
+	add rdi, 0x1000
+
+	cmp rdi, r10
+	jb .next
+
+	mov r10, rdi
+
+.next:
+	cmp rdi, r15    ; if next >= end
+	jae .done
+
+	; prepare rcx mask for later
+	mov rcx, -1
+	shl rcx, 3
+
+	; bump L1
+
+	add r11, 8
+	mov rax, r11
+	and rax, 0xfff
+	jnz .l1
+
+	; bump L2
+
+	add r12, 8
+	mov rax, r12
+	and rax, 0xfff
+	jnz .l2
+
+	; bump L3
+
+	add r13, 8
+	mov rax, r13
+	and rax, 0xfff
+	jnz .l3
+
+	; bump L4
+
+	add r14, 8
+	mov rax, r14
+	and rax, 0xfff
+	jnz .l4
+
+	; machine has more than 256TB of RAM, tell user to fuck off
+	jmp .bruh
+
+.l4:
+	mov r13, [r14]
+	and r13, rcx
+	jnz .l3
+
+	call alloc
+	mov r13, rsi
+	or rsi, 3
+	mov [r14], rsi
+
+.l3:
+	mov r12, [r13]
+	and r12, rcx
+	jnz .l2
+
+	call alloc
+	mov r12, rsi
+	or rsi, 3
+	mov [r13], rsi
+
+.l2:
+	mov r11, [r12]
+	and r11, rcx
+	jnz .l2
+
+	call alloc
+	mov r11, rsi
+	or rsi, 3
+	mov [r12], rsi
+
+	jmp .l1
+
+.done:
+	mov [next_page], r10
+	ret
+
+.bruh:
+	mov rdi, .bruh_msg
+	call print_str
 	jmp $
 
-	;jmp $
+.bruh_msg: db "bruh why do you have more than 256TB of RAM (you fucking glow)", 10, 0
 
-	;mov rcx, 1 << 63
-	;or rdi, rcx
-	;call print_hex
-
-	;mov dil, ' '
-	;call print_chr
-
-	;mov rax, [rsp]
-	;mov rdi, [rax+8]
-
-	;mov rcx, 1 << 63
-	;or rdi, rcx
-	;call print_hex
-
-	;mov dil, ' '
-	;call print_chr
-
-	; mov rax, [rsp]
-	;xor rdi, rdi
-	;mov edi, [rax+16]
-	;call print_dec
-
-	;call newline
-
-	;pop rax
-	add r8, 24
-
-	;pop rbx
-
-	dec r9
-	jnz .loop
-
-	jmp $
-
+; identity map available memory
+page_map:
+	mov r9, 0x0500                ; mmap_entry
+.entry:
+	cmp qword[r9], 0
+	je .done
+	call page_region
+	add r9, 24
+	jmp .entry
+.done:
 	ret

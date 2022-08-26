@@ -5,7 +5,7 @@
 %define VESAMODE VESAINFO+512
 %define OWNMODE  VESAMODE+256
 %define GFXINFO PAGETABLE-10
-%define MEMMAPCNT GFXINFO-2
+;%define MEMMAPCNT GFXINFO-2
 %define MEMMAP 0x500
 
 setup:
@@ -14,7 +14,7 @@ setup:
 	call print_str
 
 	; setup VESA
-	; call vesa
+	call vesa
 
 	; get extended memory map
 	call mmap

@@ -17,36 +17,32 @@ mmap:
 	cmp eax, MAPMAGIC ; detect failure
 	jne .fail
 
-	mov eax, [di+16]
-	cmp eax, 2
-	ja .next
+	cmp dword[di+16], 1
+	jne .next
 
-	mov eax, [di+4]
-	cmp eax, 0
+	cmp dword[di+4], 0
 	jne .keep
 
-	mov eax, [di+0]
-	cmp eax, 0x100000
+	cmp dword[di+0], 0x100000
 	jb .next
 
 .keep:
+	mov dword[di+20], 0
 	add di, 24
 
 .next:
 	cmp ebx, 0
 	jne .loop
 
-	mov ax, di
-	sub ax, MEMMAP
-	xor dx, dx
-	mov bx, 24
-	div bx
-	mov [MEMMAPCNT], ax
+	mov dword[di+0], 0
+	mov dword[di+4], 0
 
-	mov eax, MEMMAPCNT
-	call print_dec
-	call newline
-	;jmp $
+	;mov ax, di
+	;sub ax, MEMMAP
+	;xor dx, dx
+	;mov bx, 24
+	;div bx
+	;mov [MEMMAPCNT], ax
 
 	ret
 

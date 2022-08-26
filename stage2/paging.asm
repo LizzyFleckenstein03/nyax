@@ -21,10 +21,11 @@ paging:
 	mov di, PAGETABLE+0x3000
 .build_pt:
 	mov [di], eax
-	add eax, 0x1000
 	add di, 8
+	add eax, 0x1000
 	cmp eax, 0x100000
 	jb .build_pt
+
 	; enable paging and long mode
 
 	mov di, PAGETABLE

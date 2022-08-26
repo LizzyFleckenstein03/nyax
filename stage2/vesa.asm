@@ -151,6 +151,8 @@ vesa:
 	;mov eax, edi
 	;jmp $
 
+	;ret
+
 	; set mode
 	mov bx, [eax+10]           ; video mode in bx (first 13 bits)
 	or  bx, 1 << 14            ; set bit 14: enable linear frame buffer
