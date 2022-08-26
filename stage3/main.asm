@@ -1,5 +1,5 @@
 global _start
-extern print_str, print_num, print_chr, clear_screen
+extern print_str, print_dec, print_chr, clear_screen, paging
 
 section .data
 
@@ -16,6 +16,8 @@ section .text
 _start:
 	call clear_screen
 
+	call paging
+
 	mov rdi, headline
 	call print_str
 
@@ -23,12 +25,12 @@ _start:
 	call print_str
 
 	xor rdi, rdi
-	.loop:
+.loop:
 	push rdi
 	mov dil, 13
 	call print_chr
 	mov rdi, [rsp]
-	call print_num
+	call print_dec
 	pop rdi
 	inc rdi
 	jmp .loop

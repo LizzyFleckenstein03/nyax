@@ -49,13 +49,12 @@ load_stages:
 .fail:
 	mov ebx, .fail_msg
 	call print_str
-	jmp $
+	hlt
 
 .msg: db "loading stage2 and stage3 from disk", 10, 13, 0
 .fail_msg: db "disk failure, try rebooting", 10, 13, 0
 
-
-%include "bios_print.asm"
+%include "stage1/print.asm"
 
 times 510-($-$$) db 0
 dw 0xAA55

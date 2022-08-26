@@ -1,32 +1,3 @@
-[org 0x7E00]
-
-%define PAGETABLE 0x1000
-%define VESAINFO  0x0500
-%define VESAMODE VESAINFO+512
-%define OWNMODE  VESAMODE+256
-%define GFXINFO 0x500
-
-setup:
-	; print message
-	mov ebx, .msg
-	call print_str
-
-	; setup VESA
-	call vesa
-
-	; get extended memory map
-	call mmap
-
-	; build page table
-	call paging
-
-	; jump into long mode
-	jmp 0x0008:long_mode
-
-.msg:
-	db 10, 13, "nyax stage2", 10, 13, 0
-
-
 vesa:
 	; print message
 	mov ebx, .msg
@@ -79,7 +50,7 @@ vesa:
 	cmp al, 32
 	jne .mode_next
 
-	push ebx ; print_num and print_str modify ebx
+	push ebx ; print_dec and print_str modify ebx
 
 	mov eax, esi
 	mov ebx, 12
@@ -88,9 +59,6 @@ vesa:
 	add edi, OWNMODE
 
 	mov [edi+10], cx ; copy mode
-
-	mov eax, edi
-	call print_num
 
 	; print selector
 	mov al, '['
@@ -111,14 +79,14 @@ vesa:
 
 	movzx eax, word[VESAMODE+18] ; copy width
 	mov [edi+2], ax
-	call print_num
+	call print_dec
 
 	mov al, 'x'
 	call print_chr
 
 	movzx eax, word[VESAMODE+20] ; copy height
 	mov [edi+4], ax
-	call print_num
+	call print_dec
 	call newline
 
 	mov eax, [VESAMODE+40] ; copy framebuffer
@@ -160,10 +128,6 @@ vesa:
 	jmp .input
 
 .valid:
-	mov eax, edi
-	call print_num
-	call newline
-
 	; convert selected number to address
 	mov eax, edi
 	mov ebx, 12
@@ -171,18 +135,25 @@ vesa:
 	add eax, OWNMODE
 
 	; copy to final gfx info location
-	mov ebx, [eax]
-	mov [GFXINFO], ebx
+	mov ebx, [eax+0]
+	mov [GFXINFO+0], ebx
 
 	mov ebx, [eax+4]
 	mov [GFXINFO+4], ebx
 
-	mov bx, [eax+6]
-	mov [GFXINFO+6], bx
+	mov bx, [eax+8]
+	mov [GFXINFO+8], bx
+
+	;mov edi, eax
+	;mov eax, [edi+6]
+	;call print_hex
+	;call newline
+	;mov eax, edi
+	;jmp $
 
 	; set mode
 	mov bx, [eax+10]           ; video mode in bx (first 13 bits)
-	or  bx, 0b0100000000000000 ; set bit 14: enable linear frame buffer
+	or  bx, 1 << 14            ; set bit 14: enable linear frame buffer
 	and bx, 0b0111111111111111 ; clear deprecated bit 15
 	mov ax, 0x4F02             ; set VBE mode
 	int 0x10
@@ -215,143 +186,3 @@ vesa:
 .fail:
 	call print_str
 	jmp $
-
-
-mmap:
-	mov ebx, .msg
-	call print_str
-
-	ret
-
-.msg: db "getting extended memory map", 10, 13, 0
-
-
-paging:
-	; print message
-	mov ebx, .msg
-	call print_str
-
-	; clear 4 levels of page maps
-	mov di, PAGETABLE+0x0000
-.clr_buf:
-	mov byte[di], 0
-	inc di
-	cmp di, PAGETABLE+0x4000
-	jne .clr_buf
-
-	; init 3 page map levels
-	mov dword[PAGETABLE+0x0000], PAGETABLE+0x1003
-	mov dword[PAGETABLE+0x1000], PAGETABLE+0x2003
-	mov dword[PAGETABLE+0x2000], PAGETABLE+0x3003
-
-	; fill up level 4 page map
-	mov eax, 3
-	mov di, PAGETABLE+0x3000
-.build_pt:
-	mov [di], eax
-	add eax, 0x1000
-	add di, 8
-	cmp eax, 0x100000
-	jb .build_pt
-
-	; enable paging and long mode
-
-	mov di, PAGETABLE
-
-	mov al, 0xFF
-	out 0xA1, al
-	out 0x21, al
-
-	nop
-	nop
-
-	lidt [.idt]
-
-	mov eax, 0b10100000
-	mov cr4, eax
-
-	mov edx, edi
-	mov cr3, edx
-
-	mov ecx, 0xC0000080
-	rdmsr
-
-	or eax, 0x00000100
-	wrmsr
-
-	mov ebx, cr0
-	or ebx, 0x80000001
-	mov cr0, ebx
-
-	lgdt [.gdt_pointer]
-
-	ret
-
-.gdt:
-	dq 0
-	dq 0x00209A0000000000
-	dq 0x0000920000000000
-	dw 0
-
-.gdt_pointer:
-	dw $ - .gdt - 1
-	dd .gdt
-
-.idt:
-	dw 0
-	dd 0
-
-.msg:
-	db "building page table", 10, 13, 0
-
-
-%include "bios_print.asm"
-
-; uses eax, ebx, ecx, edx
-print_num:
-	mov ebx, 10
-	xor ecx, ecx
-.convert:
-	inc ecx
-	xor edx, edx
-	div ebx
-	add dl, '0'
-	push dx
-	cmp eax, 0
-	jne .convert
-.print:
-	cmp ecx, 0
-	je .return
-	dec ecx
-	pop ax
-	mov ah, 0x0E
-	int 0x10
-	jmp .print
-.return:
-	ret
-
-
-newline:
-	mov al, 10
-	call print_chr
-
-	mov al, 13
-	call print_chr
-
-	ret
-
-print_chr:
-	mov ah, 0x0E
-	int 0x10
-	ret
-
-[bits 64]
-
-long_mode:
-	; setup segment registers
-	mov ax, 0x0010
-	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
-	mov ss, ax

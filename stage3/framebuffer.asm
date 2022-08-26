@@ -1,5 +1,5 @@
-%include "colors.asm"
-global print_chr, print_str, print_num, clear_screen
+%include "stage3/colors.asm"
+global print_chr, print_str, print_dec, print_hex, clear_screen, newline
 extern memcpy
 
 section .data
@@ -114,15 +114,25 @@ print_str:
 .return:
 	ret
 
+print_hex:
+	mov rsi, 0x10
+	jmp print_num
+print_dec:
+	mov rsi, 10
 print_num:
 	mov rax, rdi
-	mov r10, 10
 	xor rcx, rcx
 .convert:
 	inc rcx
 	xor rdx, rdx
-	div r10
+	div rsi
+	cmp dl, 10
+	jb .digit
+	add dl, 'A'-10
+	jmp .next
+.digit:
 	add dl, '0'
+.next:
 	push rdx
 	cmp rax, 0
 	jne .convert
