@@ -52,8 +52,8 @@ _start:
 	add rax, rbx
 
 .clear:
-	mov qword[rbx], -1
-	add rbx, 8
+	mov dword[rbx], 0x87CEEB
+	add rbx, 4
 	cmp rbx, rax
 	jb .clear
 
