@@ -1,3 +1,5 @@
+SHELL:=/bin/bash
+
 STAGE3 = stage3/main.o stage3/framebuffer.o stage3/memory.o stage3/paging.o
 
 nyax.img: stage1.out stage2.out stage3.out
